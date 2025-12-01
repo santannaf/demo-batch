@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static java.lang.IO.println;
+
 @Component
 public record FileProcessorImpl(TestProvider testProvider, ProgressSinkService progress) implements FileProcessor {
     private static final Logger LOGGER = LoggerFactory.getLogger(FileProcessorImpl.class);
@@ -90,16 +92,13 @@ public record FileProcessorImpl(TestProvider testProvider, ProgressSinkService p
 
         return filePart.content()
                 .map(dataBuffer -> {
-                    String text = dataBufferToString(dataBuffer);
-
+                    String text = decode(dataBuffer);
                     long count = text.chars().filter(c -> c == '\n').count();
                     if (count > 0) {
                         long tl = totalLines.addAndGet(count);
                         progress.emit(uploadId, "TOTAL_LINES:" + tl);
                     }
 
-
-                    DataBufferUtils.release(dataBuffer);
                     return text;
                 })
                 .transform(stringFlux ->
@@ -162,7 +161,14 @@ public record FileProcessorImpl(TestProvider testProvider, ProgressSinkService p
                 });
     }
 
-    private String dataBufferToString(DataBuffer dataBuffer) {
-        return dataBuffer.toString(StandardCharsets.UTF_8);
+//    private String dataBufferToString(DataBuffer dataBuffer) {
+//        return dataBuffer.toString(StandardCharsets.UTF_8);
+//    }
+
+    private String decode(DataBuffer dataBuffer) {
+        byte[] bytes = new byte[dataBuffer.readableByteCount()];
+        dataBuffer.read(bytes);
+        DataBufferUtils.release(dataBuffer);
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 }

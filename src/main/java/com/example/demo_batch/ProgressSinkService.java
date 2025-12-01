@@ -13,7 +13,7 @@ public class ProgressSinkService {
     private final Map<String, Sinks.Many<@NonNull String>> sinks = new ConcurrentHashMap<>();
 
     public Sinks.Many<@NonNull String> getSink(String uploadId) {
-        return sinks.computeIfAbsent(uploadId, id ->
+        return sinks.computeIfAbsent(uploadId, _ ->
                 Sinks.many().multicast().onBackpressureBuffer()
         );
     }

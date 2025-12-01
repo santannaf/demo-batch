@@ -2,6 +2,7 @@ package com.example.demo_batch;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -481,7 +482,7 @@ public class CreateMeasurementsFast {
                             .append(station.measurement())
                             .append('\n');
                 }
-                try (BufferedWriter bw = Files.newBufferedWriter(MEASUREMENT_FILE, StandardOpenOption.APPEND)) {
+                try (BufferedWriter bw = Files.newBufferedWriter(MEASUREMENT_FILE, StandardCharsets.UTF_8, StandardOpenOption.APPEND)) {
                     bw.write(builder.toString());
                 }
                 catch (IOException e) {
