@@ -9,15 +9,18 @@ import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
-public record FileProcessorImpl(TestProvider testProvider) implements FileProcessor {
+public record FileProcessorImpl(TestProvider testProvider, ProgressSinkService progress) implements FileProcessor {
     private static final Logger LOGGER = LoggerFactory.getLogger(FileProcessorImpl.class);
 
     @Override
@@ -27,7 +30,9 @@ public record FileProcessorImpl(TestProvider testProvider) implements FileProces
 
         LOGGER.info("UPLOAD {} → Arquivo {} → Início do processamento", uploadId, filename);
 
-        return filePartToLines(filePart)
+        progress.emit(uploadId, "FILE_START:" + filename);
+
+        return filePartToLines(uploadId, filePart)
                 .<Measurement>handle((line, sink) -> {
                     String[] parts = line.split(";", 2);
                     if (parts.length != 2) {
@@ -46,18 +51,25 @@ public record FileProcessorImpl(TestProvider testProvider) implements FileProces
                 })
                 // monta "baldes" de Xyz
                 .bufferTimeout(batchSize, Duration.ofSeconds(5))
-                .flatMap(bucket ->
-                                testProvider.batchInsert(bucket)
-                                        .doOnNext(rows -> LOGGER.debug(
+                .flatMap(bucket -> {
+                            return testProvider.batchInsert(bucket)
+                                    .doOnNext(rows -> {
+                                        LOGGER.debug(
                                                 "UPLOAD {} → Arquivo {} → batch de {} registros inserido ({} linhas afetadas)",
                                                 uploadId,
                                                 filename,
                                                 bucket.size(),
                                                 rows
-                                        ))
-                                        .then(),         // Mono<Void> para o flatMap
-                        4 // batches em paralelo
+                                        );
+                                        progress.emit(
+                                                uploadId,
+                                                "BATCH:" + bucket.size() + ":" + rows
+                                        );
+                                    })
+                                    .then();     // Mono<Void> para o flatMap
+                        }, 3 // batches em paralelo
                 )
+                .publishOn(Schedulers.boundedElastic())
                 .doOnComplete(() -> {
                     long ms = System.currentTimeMillis() - fileStart;
                     LOGGER.info(
@@ -67,14 +79,26 @@ public record FileProcessorImpl(TestProvider testProvider) implements FileProces
                             ms,
                             ms / 1000.0
                     );
+                    progress.emit(uploadId, "FILE_DONE:" + filename);
                 })
                 .then();
     }
 
-    private Flux<@NonNull String> filePartToLines(FilePart filePart) {
+    private Flux<@NonNull String> filePartToLines(String uploadId, FilePart filePart) {
+        AtomicLong totalLines = new AtomicLong(0);
+        AtomicLong processedLines = new AtomicLong(0);
+
         return filePart.content()
                 .map(dataBuffer -> {
                     String text = dataBufferToString(dataBuffer);
+
+                    long count = text.chars().filter(c -> c == '\n').count();
+                    if (count > 0) {
+                        long tl = totalLines.addAndGet(count);
+                        progress.emit(uploadId, "TOTAL_LINES:" + tl);
+                    }
+
+
                     DataBufferUtils.release(dataBuffer);
                     return text;
                 })
@@ -126,7 +150,16 @@ public record FileProcessorImpl(TestProvider testProvider) implements FileProces
                     }
                     return s;
                 })
-                .filter(s -> !s.isBlank());
+                .filter(s -> !s.isBlank())
+                .doOnNext(_ -> {
+                    long pl = processedLines.incrementAndGet();
+
+                    long tl = totalLines.get();
+                    if (tl > 0) {
+                        double pct = (pl * 100.0) / tl;
+                        progress.emit(uploadId, "PROCESS_PCT:" + String.format(Locale.US, "%.2f", pct));
+                    }
+                });
     }
 
     private String dataBufferToString(DataBuffer dataBuffer) {

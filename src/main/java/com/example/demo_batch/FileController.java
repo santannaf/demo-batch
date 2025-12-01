@@ -6,6 +6,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -18,13 +21,16 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping(path = "/files")
+@CrossOrigin(origins = "*")
 public class FileController {
     private static final Logger logger = LoggerFactory.getLogger(FileController.class);
 
     private final FileProcessor processor;
+    private final ProgressSinkService progressSinkService;
 
-    public FileController(FileProcessor processor) {
+    public FileController(FileProcessor processor, ProgressSinkService progressSinkService) {
         this.processor = processor;
+        this.progressSinkService = progressSinkService;
     }
 
     @PostMapping(path = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -61,5 +67,10 @@ public class FileController {
                         .accepted()
                         .body("Upload " + uploadId + " recebido e será processado em background.")
         );
+    }
+
+    @GetMapping(path = "/progress/{uploadId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<@NonNull String> streamProgress(@PathVariable String uploadId) {
+        return progressSinkService.stream(uploadId);
     }
 }
