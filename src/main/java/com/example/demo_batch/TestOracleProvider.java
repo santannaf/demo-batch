@@ -19,6 +19,8 @@ import static java.lang.IO.println;
 public class TestOracleProvider implements TestProvider {
     private final ConnectionFactory connectionFactory;
 
+    private static final int BATCH_SIZE = 100;
+
     public TestOracleProvider(ConnectionFactory connectionFactory) {
         this.connectionFactory = connectionFactory;
     }
@@ -40,7 +42,7 @@ public class TestOracleProvider implements TestProvider {
     @SuppressWarnings("SqlSourceToSinkFlow")
     private Batch createBatch(Connection connection, List<Measurement> data) {
         var batch = connection.createBatch();
-        chunk(data, 50).forEach(m -> batch.add(insertCRBatch(m)));
+        chunk(data, BATCH_SIZE).forEach(m -> batch.add(insertCRBatch(m)));
         return batch;
     }
 
